@@ -35,7 +35,10 @@ godot --path .
 ```
 
 The main scene is `scenes/main_menu.tscn`. Saves are written to Godot's
-`user://save.json` (per-OS user data dir).
+`user://save.json` (per-OS user data dir) — story flags, journal entries,
+which objects have been examined, the player's position, and the conversation
+in progress if the game was saved mid-dialogue, so Continue puts the player
+back where they were. The file is written atomically (temp file + rename).
 
 ## Project layout
 
@@ -70,7 +73,8 @@ avoids merge pain — a deliberate choice for a one-person studio.
 
 Conversations are plain JSON graphs in `data/dialogue/`. Each node is either a
 linear line (`"next": "<id>"`, or `null` to end) or a choice node (`"choices"`).
-Any node can set story flags via `"set_flag"`, which `GameState` persists.
+Any node can set story flags via `"set_flag"`, which `GameState` persists, or
+record a journal entry via `"discover": "<entry id>"`.
 
 ```json
 {
@@ -90,6 +94,9 @@ Any node can set story flags via `"set_flag"`, which `GameState` persists.
 ```bash
 # Validate every dialogue graph (targets resolve, has an ending, no orphans)
 python3 tests/validate_dialogue.py
+
+# Save/load round trip (needs Godot on PATH; uses user://save_test.json)
+godot --headless --path . -s tests/test_save_load.gd
 
 # In-engine checks (requires Godot on PATH)
 godot --headless --path . --check-only   # parse all scripts

@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"scene": "res://scenes/game.tscn",
+	"flags": {
+		"trusted_edith": true,
+		"believer": true,
+		"radioed_tom": true
+	}
+}

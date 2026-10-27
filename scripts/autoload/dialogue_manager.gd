@@ -6,7 +6,8 @@ extends Node
 ##   { "speaker": String, "text": String,
 ##     "next": String|null,                     # linear node; null ends the graph
 ##     "choices": [ {"text": String, "next": String, "set_flag": {..}} ],
-##     "set_flag": { "flag_name": value } }      # applied when the node is entered
+##     "set_flag": { "flag_name": value },      # applied when the node is entered
+##     "discover": "entry_id" }                  # records a journal entry on entry
 ##
 ## UI (dialogue_box.gd) listens to these signals; it does not read the graph.
 
@@ -15,8 +16,19 @@ signal line_shown(speaker: String, text: String, choices: Array)
 signal dialogue_finished
 
 var _graph: Dictionary = {}
+var _path: String = ""
 var _current_id: String = ""
 var is_active: bool = false
+
+
+## Path of the graph being played, "" when idle. With current_id() this is
+## everything GameState needs to resume a conversation after a load.
+func current_path() -> String:
+	return _path
+
+
+func current_id() -> String:
+	return _current_id
 
 
 func start(path: String, start_id: String = "start") -> bool:
@@ -24,6 +36,7 @@ func start(path: String, start_id: String = "start") -> bool:
 	if graph.is_empty():
 		return false
 	_graph = graph
+	_path = path
 	is_active = true
 	dialogue_started.emit()
 	_goto(start_id)
@@ -69,6 +82,8 @@ func _goto(id: String) -> void:
 	_current_id = id
 	var node: Dictionary = _graph[id]
 	_apply_flags(node.get("set_flag", {}))
+	if node.has("discover"):
+		Journal.discover(str(node["discover"]))
 	line_shown.emit(
 		str(node.get("speaker", "")),
 		str(node.get("text", "")),
@@ -84,6 +99,7 @@ func _apply_flags(dict: Dictionary) -> void:
 func _finish() -> void:
 	is_active = false
 	_graph = {}
+	_path = ""
 	_current_id = ""
 	dialogue_finished.emit()
 

@@ -2,6 +2,11 @@ extends Node2D
 ## Game — the vertical-slice level: the ground floor of Cape Marrow Light.
 ## Builds the room, player, interactables, HUD prompt, dialogue box, and a
 ## pause overlay in code.
+##
+## Pausing uses the SceneTree pause: this node keeps processing so Esc still
+## closes the menu, while the player and dialogue box are PAUSABLE and freeze.
+## After a load, _apply_resume() puts the player back where they were and
+## re-opens any conversation that was in progress.
 
 const DIALOGUE := "res://data/dialogue/keeper_intro.json"
 const INTERACT_RADIUS := 90.0
@@ -15,16 +20,32 @@ var _paused: bool = false
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS  # so the pause menu can be closed
 	_build_room()
 	_build_player()
 	_build_interactables()
 	_build_hud()
 
 	var dialogue_box := preload("res://scenes/ui/dialogue_box.tscn").instantiate()
+	dialogue_box.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(dialogue_box)
 
 	DialogueManager.dialogue_started.connect(func(): _set_movement(false))
 	DialogueManager.dialogue_finished.connect(func(): _set_movement(true))
+
+	if GameState.resume_pending:
+		_apply_resume()
+
+
+## Put the player back where the save left them.
+func _apply_resume() -> void:
+	GameState.resume_pending = false
+	if typeof(GameState.player_pos) == TYPE_VECTOR2:
+		_player.position = GameState.player_pos
+	var dialogue := GameState.dialogue
+	if not dialogue.is_empty():
+		# Deferred so the dialogue box and camera have finished entering the tree.
+		DialogueManager.call_deferred("start", str(dialogue["path"]), str(dialogue["node"]))
 
 
 func _build_room() -> void:
@@ -48,6 +69,7 @@ func _build_room() -> void:
 
 func _build_player() -> void:
 	_player = Player.new()
+	_player.process_mode = Node.PROCESS_MODE_PAUSABLE
 	_player.bounds = ROOM.grow(-30)
 	_player.position = Vector2(ROOM.position.x + ROOM.size.x * 0.5, ROOM.position.y + ROOM.size.y - 60)
 	add_child(_player)
@@ -69,6 +91,7 @@ func _build_interactables() -> void:
 
 func _add_interactable(label: String, prompt: String, start_id: String, pos: Vector2, color: Color) -> void:
 	var item := Interactable.new()
+	item.id = start_id
 	item.label = label
 	item.prompt_text = prompt
 	item.dialogue_path = DIALOGUE
@@ -77,6 +100,7 @@ func _add_interactable(label: String, prompt: String, start_id: String, pos: Vec
 	item.position = pos
 	add_child(item)
 	item.setup()
+	item.restore_used(GameState.is_examined(start_id))
 	_interactables.append(item)
 
 
@@ -123,6 +147,8 @@ func _find_nearest() -> Interactable:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		# Allowed mid-dialogue: the box is PAUSABLE and freezes with the tree,
+		# and a save taken here resumes the conversation at the same line.
 		_toggle_pause()
 		get_viewport().set_input_as_handled()
 		return
@@ -135,16 +161,26 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _set_movement(enabled: bool) -> void:
 	if _player != null:
-		_player.can_move = enabled and not _paused
+		_player.can_move = enabled and not _paused and not DialogueManager.is_active
 
 
 func _toggle_pause() -> void:
-	if DialogueManager.is_active:
-		return
-	_paused = not _paused
-	_set_movement(not _paused)
 	if _paused:
+		_resume()
+	else:
+		_paused = true
+		get_tree().paused = true
+		_set_movement(false)
 		_show_pause_menu()
+
+
+func _resume() -> void:
+	var layer := get_node_or_null("PauseLayer")
+	if layer != null:
+		layer.queue_free()
+	_paused = false
+	get_tree().paused = false
+	_set_movement(true)
 
 
 func _show_pause_menu() -> void:
@@ -171,15 +207,13 @@ func _show_pause_menu() -> void:
 	center.add_child(vbox)
 
 	var resume := _menu_button("Resume")
-	resume.pressed.connect(func():
-		layer.queue_free()
-		_paused = false
-		_set_movement(true))
+	resume.pressed.connect(_resume)
 	vbox.add_child(resume)
 
 	var save := _menu_button("Save")
 	save.pressed.connect(func():
 		GameState.current_scene = scene_file_path
+		GameState.player_pos = _player.position
 		var ok := GameState.save_game()
 		save.text = "Saved ✓" if ok else "Save failed")
 	vbox.add_child(save)
@@ -190,7 +224,9 @@ func _show_pause_menu() -> void:
 	vbox.add_child(settings)
 
 	var menu := _menu_button("Main Menu")
-	menu.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
+	menu.pressed.connect(func():
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
 	vbox.add_child(menu)
 
 	resume.grab_focus()

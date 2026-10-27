@@ -5,6 +5,8 @@ class_name Interactable
 
 signal interacted(source: Interactable)
 
+## Stable id used for save data (which objects have been examined).
+var id: String = ""
 var label: String = "Object"
 var prompt_text: String = "Examine"
 var dialogue_path: String = ""
@@ -35,10 +37,16 @@ func can_interact() -> bool:
 	return not (once and _used)
 
 
+## Restore examined state after a load (so `once` items stay used).
+func restore_used(used: bool) -> void:
+	_used = used
+
+
 func interact() -> void:
 	if not can_interact():
 		return
 	_used = true
+	GameState.mark_examined(id)
 	interacted.emit(self)
 	if dialogue_path != "":
 		DialogueManager.start(dialogue_path, dialogue_start)

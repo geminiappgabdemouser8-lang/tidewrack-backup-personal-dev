@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
 
 # --- Public Demo: journal graphs -------------------------------------------
-# The journal system (scripts/journal.gd) reads discovered-log entries from the
+# The journal system (scripts/autoload/journal.gd) reads discovered-log entries from the
 # same JSON-graph format, so they validate through the checker above. Journal
 # graphs live under data/dialogue/ with an "entry_*" id and are held to the same
 # rules (targets resolve, a terminal exists). This hook is a placeholder until

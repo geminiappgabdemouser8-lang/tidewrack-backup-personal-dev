@@ -31,31 +31,33 @@ renderer/rendering_method.mobile="gl_compatibility"
 
 [input]
 
-; Controller support (Public Demo milestone). Gamepad events are layered onto
-; Godot's built-in ui_* actions so the keyboard bindings keep working unchanged.
+; Input map for the public demo. Overriding a built-in ui_* action in this file
+; REPLACES its default event list, so the keyboard defaults must be listed here
+; explicitly alongside the gamepad events — otherwise the demo is pad-only.
+; Keyboard: Enter / KP-Enter / Space, Esc, arrow keys.  Gamepad: A, B, left stick.
 ui_accept={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadButton,"button_index":0)]
+"events": [Object(InputEventKey,"keycode":4194309), Object(InputEventKey,"keycode":4194310), Object(InputEventKey,"keycode":32), Object(InputEventJoypadButton,"button_index":0)]
 }
 ui_cancel={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadButton,"button_index":1)]
+"events": [Object(InputEventKey,"keycode":4194305), Object(InputEventJoypadButton,"button_index":1)]
 }
 ui_left={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadMotion,"axis":0,"axis_value":-1.0)]
+"events": [Object(InputEventKey,"keycode":4194319), Object(InputEventJoypadMotion,"axis":0,"axis_value":-1.0)]
 }
 ui_right={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadMotion,"axis":0,"axis_value":1.0)]
+"events": [Object(InputEventKey,"keycode":4194321), Object(InputEventJoypadMotion,"axis":0,"axis_value":1.0)]
 }
 ui_up={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadMotion,"axis":1,"axis_value":-1.0)]
+"events": [Object(InputEventKey,"keycode":4194320), Object(InputEventJoypadMotion,"axis":1,"axis_value":-1.0)]
 }
 ui_down={
 "deadzone": 0.5,
-"events": [Object(InputEventJoypadMotion,"axis":1,"axis_value":1.0)]
+"events": [Object(InputEventKey,"keycode":4194322), Object(InputEventJoypadMotion,"axis":1,"axis_value":1.0)]
 }
 
 [global]

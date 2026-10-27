@@ -9,14 +9,22 @@ Checks, for every data/dialogue/*.json file:
   - at least one terminal (next == null) is reachable from an entry point
   - reports orphan nodes (unreachable from any known entry) as warnings
 
-Exit code 0 = all valid, 1 = at least one error.
+Then prints a flag report: every story flag, where the dialogue sets it (and
+to what), where the GDScript reads it, and any flag that is set but never
+read or read but never set. Journal entries recorded via "discover" are
+listed the same way.
 
-Usage:  python3 tests/validate_dialogue.py
+Exit code 0 = all valid, 1 = at least one error. The flag report only ever
+adds warnings; it never fails the run.
+
+Usage:  python3 tests/validate_dialogue.py [--no-flags]
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Entry-point node ids the game starts graphs from (see scripts/game.gd).
@@ -24,6 +32,11 @@ KNOWN_ENTRIES = {"logbook", "radio", "door", "start"}
 
 ROOT = Path(__file__).resolve().parent.parent
 DIALOGUE_DIR = ROOT / "data" / "dialogue"
+SCRIPTS_DIR = ROOT / "scripts"
+
+# Journal entries are recorded by dialogue nodes with "discover": "<entry id>";
+# ids are expected to carry this prefix (see scripts/autoload/journal.gd).
+JOURNAL_ENTRY_PREFIX = "entry_"
 
 
 def reachable(graph: dict, entries: set[str]) -> set[str]:
@@ -103,7 +116,98 @@ def validate_file(path: Path) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def main() -> int:
+# --- Flag report ------------------------------------------------------------
+
+def collect_flag_sites(files: list[Path]) -> tuple[dict, dict]:
+    """Where dialogue sets each flag, and where it records journal entries.
+
+    Returns (flags, discovers):
+      flags:     flag -> list of (location, value) e.g. ("keeper_intro.json:logbook_choice1/choice#0", True)
+      discovers: entry id -> list of locations
+    """
+    flags: dict[str, list[tuple[str, object]]] = defaultdict(list)
+    discovers: dict[str, list[str]] = defaultdict(list)
+    for path in files:
+        try:
+            graph = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(graph, dict):
+            continue
+        for nid, node in graph.items():
+            if not isinstance(node, dict):
+                continue
+            where = f"{path.name}:{nid}"
+            for flag, value in (node.get("set_flag") or {}).items():
+                flags[str(flag)].append((where, value))
+            if "discover" in node:
+                discovers[str(node["discover"])].append(where)
+            for i, choice in enumerate(node.get("choices") or []):
+                if isinstance(choice, dict):
+                    for flag, value in (choice.get("set_flag") or {}).items():
+                        flags[str(flag)].append((f"{where}/choice#{i}", value))
+    return flags, discovers
+
+
+_GET_FLAG = re.compile(r'get_flag\(\s*"([^"]+)"')
+_SET_FLAG = re.compile(r'set_flag\(\s*"([^"]+)"')
+
+
+def collect_script_sites() -> tuple[dict, dict]:
+    """Where GDScript reads (get_flag) and writes (set_flag) each flag by name."""
+    reads: dict[str, list[str]] = defaultdict(list)
+    writes: dict[str, list[str]] = defaultdict(list)
+    for path in sorted(SCRIPTS_DIR.rglob("*.gd")):
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            where = f"{path.relative_to(ROOT)}:{lineno}"
+            for m in _GET_FLAG.finditer(line):
+                reads[m.group(1)].append(where)
+            for m in _SET_FLAG.finditer(line):
+                writes[m.group(1)].append(where)
+    return reads, writes
+
+
+def flag_report(files: list[Path]) -> list[str]:
+    """Print the flag report; return warnings it raised."""
+    warnings: list[str] = []
+    set_in_dialogue, discovers = collect_flag_sites(files)
+    read_in_code, set_in_code = collect_script_sites()
+
+    all_flags = sorted(set(set_in_dialogue) | set(read_in_code) | set(set_in_code))
+    print("Flag report")
+    print(f"  {len(all_flags)} flag(s): {len(set_in_dialogue)} set by dialogue, "
+          f"{len(set_in_code)} set by code, {len(read_in_code)} read by code")
+    for flag in all_flags:
+        print(f"  {flag}")
+        for where, value in set_in_dialogue.get(flag, []):
+            print(f"    set   {where}  = {json.dumps(value)}")
+        for where in set_in_code.get(flag, []):
+            print(f"    set   {where}  (code)")
+        for where in read_in_code.get(flag, []):
+            print(f"    read  {where}")
+        is_set = flag in set_in_dialogue or flag in set_in_code
+        if not read_in_code.get(flag):
+            print("    read  —")
+            warnings.append(f"flag '{flag}' is set but never read: no get_flag() in scripts/")
+        if not is_set:
+            print("    set   —")
+            warnings.append(f"flag '{flag}' is read but never set: no set_flag in dialogue or scripts/")
+        values = {json.dumps(v) for _, v in set_in_dialogue.get(flag, [])}
+        if len(values) > 1:
+            print(f"    note  set to more than one value: {', '.join(sorted(values))}")
+
+    print(f"  {len(discovers)} journal entr{'y' if len(discovers) == 1 else 'ies'} recorded via \"discover\"")
+    for entry in sorted(discovers):
+        print(f"  {entry}")
+        for where in discovers[entry]:
+            print(f"    discover  {where}")
+        if not entry.startswith(JOURNAL_ENTRY_PREFIX):
+            warnings.append(f"journal entry '{entry}' does not use the '{JOURNAL_ENTRY_PREFIX}' prefix")
+    return warnings
+
+
+def main(argv: list[str]) -> int:
+    show_flags = "--no-flags" not in argv
     files = sorted(DIALOGUE_DIR.glob("*.json"))
     if not files:
         print(f"No dialogue files found in {DIALOGUE_DIR}")
@@ -123,6 +227,13 @@ def main() -> int:
     for e in all_errors:
         print(f"  ERROR:   {e}")
 
+    if show_flags:
+        print()
+        flag_warnings = flag_report(files)
+        for w in flag_warnings:
+            print(f"  warning: {w}")
+        all_warnings += flag_warnings
+
     print()
     if all_errors:
         print(f"✗ {len(all_errors)} error(s), {len(all_warnings)} warning(s)")
@@ -132,17 +243,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
 
-
-# --- Public Demo: journal graphs -------------------------------------------
-# The journal system (scripts/autoload/journal.gd) reads discovered-log entries from the
-# same JSON-graph format, so they validate through the checker above. Journal
-# graphs live under data/dialogue/ with an "entry_*" id and are held to the same
-# rules (targets resolve, a terminal exists). This hook is a placeholder until
-# the journal content lands for the public demo.
-JOURNAL_ENTRY_PREFIX = "entry_"
-
-
-def is_journal_graph(graph: dict) -> bool:
-	return any(str(k).startswith(JOURNAL_ENTRY_PREFIX) for k in graph)

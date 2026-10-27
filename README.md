@@ -93,6 +93,7 @@ record a journal entry via `"discover": "<entry id>"`.
 
 ```bash
 # Validate every dialogue graph (targets resolve, has an ending, no orphans)
+# and print the flag report (where each story flag is set / read; --no-flags to skip)
 python3 tests/validate_dialogue.py
 
 # Save/load round trip (needs Godot on PATH; uses user://save_test.json)
